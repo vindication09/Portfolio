@@ -1,0 +1,8 @@
+kaggle
+pandas
+matplotlib
+scipy
+seaborn
+numpy
+sklearn
+missingpy
