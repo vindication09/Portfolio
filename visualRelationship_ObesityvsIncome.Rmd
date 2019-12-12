@@ -1,0 +1,309 @@
+---
+title: "DATA 608 Final Project"
+author: "Vinicio Haro"
+date: "5/13/2019"
+output: html_document
+runtime: shiny
+---
+
+# Obesity vs Household Income
+
+##Background 
+When it comes to Obesity in America, what factors contribute to rising Obesity rates? Various studies done across several disciplines cite factors such as household income, race, genetics, and industry as factors. For our purposes, we are going to visualize the relationship between Household Income and Obesity. We are not performing statistical analysis or modeling. 
+
+In order to get the whole picture, I want to examine a snapshot of household income and obesity across the nation. This will be followed up by a look at how the obesity rates and median HHI’s changed over time.  After analyzing the results, we will take a deeper dive into how things look in New York City as. 
+
+This project will showcase visualizing concepts ranging from static images to shiny apps. 
+
+##The Data 
+we pull data from various sources listed below: 
+
+* [United States Census] (https://www.census.gov/topics/income-poverty/income.html)
+
+* [United States CDC] (https://chronicdata.cdc.gov/Nutrition-Physical-Activity-and-Obesity/Nutrition-Physical-Activity-and-Obesity-Behavioral/hn4x-zwk7)
+
+
+
+##R Packages Used 
+```{r message=FALSE, warning=FALSE}
+library("tmap")
+library("tmaptools")
+library("sf")
+library("leaflet")
+library(ggplot2)
+library(sp)
+library(maps)
+library(readr)
+library(usmap)
+library(ggplot2)
+library(ggrepel)
+library(sqldf)
+library(shiny)
+library(plotly)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(tidyr)
+#library(ggthemes)
+library(alr3)
+library(RColorBrewer)
+library(sf)
+library(fiftystater)
+library(purrr)
+```
+
+## Bringing in the Data 
+In order to keep this assignment as reproducible as possible, the data will be read from Github. 
+
+```{r message=FALSE, warning=FALSE}
+poverty.df <- read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/Poverty%20(2).csv")
+obesity.df <- read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/Obese%20Adults%20(2).csv")
+national<-read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/National_Obesity_By_State.csv")
+income<-read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/2015incomenew.csv")
+state_income<-read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/statelevel_medianincome.csv")
+state_obesity<-read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/cdc_obesity_survey.csv")
+obesity_nyc<-read_csv("https://raw.githubusercontent.com/vindication09/DATA-608/master/obesity_nyc.csv")
+#head(poverty.df);head(obesity.df);head(national);head(income);head(state_income);head(state_obesity)
+```
+
+#EDA
+In order to get an idea of what the landscape of poverty and obesity looks like across the nation, we can generate a heatmap for each attribute. We are looking at data pertaining to adults 18 and over. 
+
+```{r warning=FALSE, message=FALSE}
+nationalb<-sqldf("select 
+                 Name as 'state',
+Obesity
+from national")
+usmap::plot_usmap(data = nationalb, values = "Obesity", lines = "black") + 
+  scale_fill_continuous(name = "Percent",low = "white", high = "red", label = scales::comma) + 
+  theme(legend.position = "right")+ 
+  labs(title = "United States Obesity Distribution", subtitle = "Percent of Population classified Obese per State ~ 2015 CDC BRFSS Survey.")
+```
+
+According the the Obesity Rate heatmap, Colorado is the state with the lowest percentage of adults classified as Obese. States such as Louisiana or Mississippi have a higher percentage of adults classified as Obese. 
+
+
+```{r warning=FALSE, message=FALSE}
+incomeb<-sqldf("select 
+              State as state, 
+               income
+               from income")
+usmap::plot_usmap(data = incomeb, values = "income", lines = "red") + 
+  scale_fill_continuous(name = "HHI",low = "white", high = "green", label = scales::comma) + 
+  theme(legend.position = "right")+ 
+  labs(title = "United States Median Household Income", subtitle = "2015 Census")
+```
+
+According to the Median Household income map, Alaska and New York are states that report higher median houshold incomes. States such as Alabama and Louisiana have the lowest median household income. We can use a by the numbers approach to get the exact states where the median income is the lowest in addition to the states that have the highest percentage of adults classified as obese. 
+
+```{r warning=FALSE, message=FALSE}
+incomec<-sqldf("select * from incomeb order by income asc limit 10")
+nationalc<-sqldf("select * from nationalb order by obesity desc limit 10")
+incomed<-sqldf("select * from incomeb order by income desc limit 10")
+nationald<-sqldf("select * from nationalb order by obesity asc limit 10")
+join2015<-sqldf("select
+                a.state,
+                a.income,
+                b.obesity
+                from incomeb a 
+                join nationalb b 
+                on (a.state=b.State)")
+ggplot(incomec, aes(x=reorder(state,income),round(income, digits=2)))+ 
+  geom_bar(stat="identity", fill="deepskyblue3")+
+  geom_text(aes(label=round(income, digits=2)), vjust=0.5, size=5, position=position_dodge(width = 1), hjust=1.5)+
+  theme_minimal()+
+  theme(axis.text.x=element_text(size=12, vjust=0.5))+
+  theme(axis.text.y=element_text(size=12, vjust=0.5))+
+  theme(plot.title = element_text(size=12))+
+  labs( x="State", y="Median Household Income")+
+  coord_flip()+
+  labs(caption="2015 U.S Census")+  
+  ggtitle("Bottom 10 States by Median Household Income");
+ggplot(nationalc, aes(x=reorder(state,Obesity),round(Obesity, digits=2)))+ 
+  geom_bar(stat="identity", fill="deepskyblue3")+
+  geom_text(aes(label=round(Obesity, digits=2)), vjust=0.5, size=5, position=position_dodge(width = 1), hjust=1.5)+
+  theme_minimal()+
+  theme(axis.text.x=element_text(size=12, vjust=0.5))+
+  theme(axis.text.y=element_text(size=12, vjust=0.5))+
+  theme(plot.title = element_text(size=12))+
+  labs( x="State", y="Percent of Adults Classified as Obese")+
+  coord_flip()+
+  labs(caption="2015 CDC Survey")+  
+  ggtitle("Top 10 States by Percent of Adults Classified as Obese");
+ggplot(incomed, aes(x=reorder(state,income),round(income, digits=2)))+ 
+  geom_bar(stat="identity", fill="deepskyblue3")+
+  geom_text(aes(label=round(income, digits=2)), vjust=0.5, size=5, position=position_dodge(width = 1), hjust=1.5)+
+  theme_minimal()+
+  theme(axis.text.x=element_text(size=12, vjust=0.5))+
+  theme(axis.text.y=element_text(size=12, vjust=0.5))+
+  theme(plot.title = element_text(size=12))+
+  labs( x="State", y="Median Household Income")+
+  coord_flip()+
+  labs(caption="2015 U.S Census")+  
+  ggtitle("Top 10 States by Median Household Income")
+ggplot(nationald, aes(x=reorder(state,Obesity),round(Obesity, digits=2)))+ 
+  geom_bar(stat="identity", fill="deepskyblue3")+
+  geom_text(aes(label=round(Obesity, digits=2)), vjust=0.5, size=5, position=position_dodge(width = 1), hjust=1.5)+
+  theme_minimal()+
+  theme(axis.text.x=element_text(size=12, vjust=0.5))+
+  theme(axis.text.y=element_text(size=12, vjust=0.5))+
+  theme(plot.title = element_text(size=12))+
+  labs( x="State", y="Percent of Adults Classified as Obese")+
+  coord_flip()+
+  labs(caption="2015 CDC Survey")+  
+  ggtitle("Bottom 10 States by Percent of Adults Classified as Obese");
+```
+
+The bar charts confirm that there exists overlap between States that have the lowest median household income and states that have the highest percentage of adults classified as Obese such as Missisippi. I want to examine how a state such as Mississippi compares to the National averages for Obesity and Income overtime. We utilize a shiny approach to view the time series for the state of our choice. 
+
+On the flip side, we see some overlap between higher median household income regions such as Colorado and DC with the lowest percentage of adults classified as obese. I would also use this result to make the case that there are additional factors outside of household income that affect the obesity race on both ends of the obesity spectrum. 
+
+# Change Over Time 
+As of now, we have observed the median household income ad obesity rates in a 2015 snapshot. In order to get a better idea of the overall landscape, we can examine the change of obesity rates and median household incomes over time. 
+
+Prep Data 
+```{r warning=FALSE, message=FALSE}
+#extract the state level data 
+stateonly_income<-sqldf("select 
+                    * 
+                    from state_income 
+                    where state not in ('United States')")
+national_income<-sqldf("select
+                       *
+                       from state_income
+                       where state='United States'")
+#bring these two data sources together 
+joina<-sqldf("select 
+             a.year, 
+             a.state,
+             a.income,
+             b.income as national_avg_income
+             from stateonly_income a
+             join national_income b 
+             on (a.year=b.year)")
+#extract the state level data 
+stateonly_obesity<-sqldf("select 
+                    * 
+                    from state_obesity
+                    where state not in ('United States')")
+national_obesity<-sqldf("select
+                       *
+                       from state_obesity
+                       where state='United States'")
+#bring these two data sources together 
+joinb<-sqldf("select 
+             a.year, 
+             a.state,
+             a.Data_Value as state_value,
+             b.Data_Value as national_value
+             from stateonly_obesity a
+             join national_obesity b 
+             on (a.year=b.year)")
+```
+
+##Median Household Income per State vs National Avg Household Income
+```{r warning=FALSE, message=FALSE}
+library(shiny)
+library(plotly)
+ui <- fluidPage(
+  sidebarPanel(
+    selectInput(inputId = "state", label = "State Selected:",
+                choices = levels(as.factor(joina$state))
+    ),
+ 
+    helpText("Median Household Income per State vs National Median Household Income"),
+    width = "auto"
+  ),
+  plotOutput("plot2")
+)
+server<- function(input, output) {
+  
+  output$plot2 <-renderPlot({
+    
+    SelectedState <- input$state
+    
+    ggplot(joina[joina$state == SelectedState,]) +
+      geom_bar(aes(x = year, weight = income), fill = "steelblue") +
+      labs(x="Year", y = "Median Household Income", 
+           title = "U.S Median Household Income",
+           subtitle = paste("U.S Census 2013-2017")) +
+      geom_line(aes(x = year, y = national_avg_income, linetype = "National Median HHI"), col = "red", lwd = 1) +
+      scale_linetype(name = NULL) +
+      theme_bw()
+  })
+}
+shinyApp(ui = ui, server = server)
+```
+
+According to our time series, if we examine a State we identified to be low median income such as Mississippi, we see that over the course of 2013-2017, median HHi's remained well below the National average Household Income. 
+
+## Percent of Adults Classified as Obese vs National Avg of Adults Classified as Obese
+```{r warning=FALSE, message=FALSE}
+ui <- fluidPage(
+  sidebarPanel(
+    selectInput(inputId = "state", label = "State Selected:",
+                choices = levels(as.factor(joinb$state))
+    ),
+ 
+    helpText("Percent of Adults Classified as Obese"),
+    width = "auto"
+  ),
+  plotOutput("plot3")
+)
+server<- function(input, output) {
+  
+  output$plot3 <-renderPlot({
+    
+    SelectedState <- input$state
+    
+    ggplot(joinb[joinb$state == SelectedState,]) +
+      geom_bar(aes(x = year, weight = state_value), fill = "steelblue") +
+      labs(x="Year", y = "Percent of Adults Classified as obese", 
+           title = "U.S CDC Obesity Survey",
+           subtitle = paste("CDC 2013-2017")) +
+      geom_line(aes(x = year, y = national_value, linetype = "National Average"), col = "red", lwd = 1) +
+      scale_linetype(name = NULL) +
+      theme_bw()
+  })
+}
+shinyApp(ui = ui, server = server)
+```
+
+If we use the app to drill down to Mississippi, we can see the the percent of adults classified as obese has exceeded the national average between 2013-2017 with the exception of 2015. It could be telling to extend the time series by an additional 5 yearsin order to see if that dip is a fluke or not. I leave that as a recommended step for additional study outside of this project. 
+
+After looking through our time series for both median household income and obesity rates for States of your choice, it appears that the trend is steady when it comes to States that are on the low or high end of the spectrum for each attribute. How can we now guage the relationship between Household Income and Obesity Rates at the National Level? for our purposes, we can examine a simple scatter plot and layer in a correlation coefficient. 
+
+##Connecting Median Household Income with Obesity Rates across the Nation
+Join exisiting data on state 
+```{r warning=FALSE, message=FALSE}
+joinc<-sqldf("select
+             a.year, 
+             a.state,
+             a.income,
+             b.state_value
+             from joina a
+             join joinb b 
+             on (a.state=b.state and a.year=b.year)")
+nationals<-sqldf("select
+year, national_avg_income, national_value
+from
+(
+            select
+             a.year, 
+             a.national_avg_income,
+             b.national_value
+             from joina a
+             join joinb b 
+             on (a.year=b.year)
+            )
+            group by year, national_avg_income, national_value")
+ggplot(data = joinc, aes(x = state_value, y = income)) +
+        geom_point(color = 'salmon') + 
+        xlim(0, quantile(joinc$state_value, 0.95)) + 
+        ylim(0, quantile(joinc$income, 0.95)) +
+        geom_smooth(method = 'lm') +
+         facet_wrap( ~ joinc$year )
+```
+
+Across 2013-2017, we can see there exists evidence of a strong linear relationship between Median Household income and percentage of adults classified as obese. Across all 5 years, the lower the median household income,the higher the percentage of adults classified as obese. We also add a 95 percent confidence interval to our best fitting line. 2015 still seems odd due to the fact that there is not so much of a linear trend compared to the other years. I would recommed investigate outliers or additional factors such as race or education. 
+
