@@ -1,0 +1,331 @@
+---
+title: "Project 3"
+author: Peter Lombardo, Sang Yoon (Andy), Vinicio Haro, Ryan Weber, Anjal Hussan,
+  Ashish Kumar
+date: "March 23, 2018"
+---
+
+# Indeed
+```{r}
+library(rvest)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(RCurl)
+```
+```{r}
+ping <- function(x, stderr = FALSE, stdout = FALSE, ...){
+    pingvec <- system2("ping", x,
+                       stderr = FALSE,
+                       stdout = FALSE,...)
+    if (pingvec == 0) TRUE else FALSE
+}
+```
+```{r}
+# Search Words
+job_title <- "Data+Scientist"
+location <- "united+states"
+# Set URLs
+url_short <- 'https://www.indeed.com'
+url_full <- paste0('https://www.indeed.com/jobs?q=Data+Scientist&l=united+states&start=10')
+cat(url_full)
+```
+```{r}
+# get the html file from search url
+main_page <- read_html(url_full)
+# get the total number of job posting from keywords
+total_job_posting <- unlist(strsplit(main_page %>%
+                              html_node("#searchCount") %>%
+                              html_text(), split = ' '))
+total_job_posting <- as.numeric(str_replace_all(total_job_posting[length(total_job_posting)-1],',',''))
+cat('Total number of job posting: ', total_job_posting)
+```
+```{r}
+# Setting up main page web scraping
+links <- main_page %>%
+ html_nodes("h2 a") %>%
+ html_attr('href')
+# Set page search sequence
+page_seq <- paste0("https://www.indeed.com/jobs?q=Data+Scientist&l=united+states&start=", seq(10, 60, 10 ))
+  
+  
+kw_ln <- c('Hadoop','Python','\\bSQL', 'NoSQL','\\bR\\b', 'Spark', 'SAS', 'Excel\\b', 'Hive', '\\bC\\b', 'Java', 'Tableau')
+kw_edu <- c('(\\bB[\\.| ]?A\\.?\\b)|(\\bB[\\.| ]?S\\.?\\b)|\1.?\2|\2.?\1|Bachelor',
+            '(\\bM[\\.| ]?A\\.?\\b)|(\\bM[\\.| ]?S\\.?\\b)|\1.?\2|\2.?\1|Master',
+            'Ph[\\.| ]?D|Doctorate' )
+```
+```{r}
+# Raw html cleaning; removing commas, tabs and etc  
+clean.text <- function(text)
+{
+ str_replace_all(text, regex('\r\n|\n|\t|\r|,|/|<|>|\\.|[:space:]'), ' ')
+}
+# Scrape web page and compute running total
+scrape_web <- function(res, page_seq ){
+ for(i in 1:length(page_seq)){
+   job.url <- paste0(url_short,page_seq [i])
+   
+   Sys.sleep(1)
+   cat(paste0('Reading job ', i, '\n'))
+   
+   tryCatch({
+     html <- read_html(job.url)
+     text <- html_text(html)
+     text <- clean.text(text)
+     df <- data.frame(skill = kw_ln, count = ifelse(str_detect(text, kw_ln), 1, 0))
+     res$running$count <- res$running$count + df$count
+     res$num_jobs <- res$num_jobs + 1
+   }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+ }
+ return(res)
+}
+scrape_web_edu <- function(res, page_seq ){
+ for(i in 1:length(page_seq)){
+   job.url <- paste0(url_short,page_seq [i])
+   
+   Sys.sleep(1)
+   cat(paste0('Reading job ', i, '\n'))
+   
+   tryCatch({
+     html <- read_html(job.url)
+     text <- html_text(html)
+     text <- clean.text(text)
+     df <- data.frame(skill = kw_edu, count = ifelse(str_detect(text, kw_edu), 1, 0))
+     res$running$count <- res$running$count + df$count
+     res$num_jobs <- res$num_jobs + 1
+   }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+ }
+ return(res)
+}
+```
+```{r}
+# Remove \\b for ggplot visualization
+kw_ln_ggplot <- c('Hadoop','Python','SQL', 'NoSQL','R', 'Spark', 'SAS', 'Excel', 'Hive', 'C', 'Java', 'Tableau')
+kw_edu_ggplot  <- c('bachelor','Master','PhD' )
+# Get the running total
+running <- data.frame(skill = kw_ln_ggplot, count = rep(0, length(kw_ln_ggplot)))
+running_edu <- data.frame(Education = kw_edu_ggplot, count = rep(0, length(kw_edu_ggplot)))
+# Since the indeed only display max of 20 pages from search result, we cannot use total_job_posting but need to track by creating a num_jobs
+num_jobs <- 0
+```
+```{r, include=FALSE}
+# Here is our results object that contains the two stats
+results <- list("running" = running, "num_jobs" = num_jobs)
+if(total_job_posting != 0){
+ cat('Scraping jobs in Start Page\n')
+ 
+}
+for(p in 1:length(page_seq)){
+ 
+ cat('Moving to Next 50 jobs\n')
+ 
+ # Navigate to next page
+ping_res <- ping(paste0(page_seq[p]))
+ new.page <- read_html(paste0(page_seq[p]))
+ 
+ # Get new page job URLs
+ links <- new.page %>%
+   html_nodes("h2 a") %>%
+   html_attr('href')
+ 
+ # Scrap job links
+ results <- scrape_web(results, links)
+}
+```
+```{r, include=FALSE}
+results_edu <- list("running" = running_edu, "num_jobs" = num_jobs)
+if(total_job_posting != 0){
+ cat('Scraping jobs in Start Page\n')
+}
+for(p in 1:length(page_seq)){
+ 
+ cat('Moving to Next 50 jobs\n')
+ 
+ # Navigate to next page
+ping_res <- ping(paste0(page_seq[p]))
+ new.page <- read_html(paste0(page_seq[p]))
+ 
+ # Get new page job URLs
+ links <- new.page %>%
+   html_nodes("h2 a") %>%
+   html_attr('href')
+ 
+ # Scrap job links
+ results_edu <- scrape_web_edu(results_edu, links)
+}
+```
+```{r}
+# running total
+print(arrange(results$running, -count))
+# running total count as percentage
+results$running$count<-results$running$count/results$num_jobs
+# Reformat the Job Title and Location to readable form
+jt <- str_replace_all(job_title, '\\+|\\\"', ' ')
+loc <- str_replace_all(location, '\\%2C+|\\+',' ')
+# Visualization
+#p <- ggplot(results$running, aes(reorder(skill,-count), count)) + geom_bar(stat="identity") +
+# labs(x = 'Language', y = 'Frequency (%)', title = paste0('Language (%) for ', jt, ' in ', loc)) 
+#p + scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+```
+```{r}
+print(arrange(results_edu$running, -count))
+# running total count as percentage
+results_edu$running$count<-results_edu$running$count/results_edu$num_jobs
+# Reformat the Job Title and Location to readable form
+jt <- str_replace_all(job_title, '\\+|\\\"', ' ')
+loc <- str_replace_all(location, '\\%2C+|\\+',' ')
+# Visualization
+# RW... commenting this out so that we just read the pre-saved out .csv results right below
+# p <- ggplot(results_edu$running, aes(reorder(Education,-count), count)) + geom_bar(stat="identity") +
+# labs(x = 'Education', y = 'Frequency (%)', title = paste0('Education (%) for ', jt, ' in ', loc)) 
+# p + scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+```
+```{r, include=FALSE}
+# #write CSV files
+# write.csv (results_edu, file ="/Users/vinicioharo/Desktop/DATA Science SPS/DATA 607/Week 8/results_edu_Indeed.csv",row.names = F)
+# write.csv (results, file ="/Users/vinicioharo/Desktop/DATA Science SPS/DATA 607/Week 8/results_SKILL_Indeed.csv",row.names = F)
+```
+Text Analysis and Visualization 
+```{r, include=FALSE}
+# Install
+#install.packages("tm")  # for text mining
+#install.packages("SnowballC") # for text stemming
+#install.packages("wordcloud") # word-cloud generator 
+#install.packages("RColorBrewer") # color palettes
+# Load
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
+library(ggplot2)
+```
+connect to mysql 
+```{r, include=FALSE}
+library(RMySQL)
+mydb = dbConnect(MySQL(), user='root', password='data', dbname='project3', host='localhost')
+```
+
+```{r}
+dbListFields(mydb, 'indeed_skills')
+x<-dbGetQuery(mydb, 'select * from indeed_skills;')
+head(x)
+```
+
+
+
+Get the table that contains the skill and count for each skill
+```{r}
+indeed_skill<-dbGetQuery(mydb, 'select skill, count from indeed_skills;')
+head(indeed_skill)
+indeed_edu<-dbGetQuery(mydb, 'select education_level as education, count from indeed_edu;')
+head(indeed_edu)
+```
+
+
+```{r}
+zip_skill<-dbGetQuery(mydb, 'select skill, count, percent from zip_skills;')
+head(zip_skill)
+zip_edu<-dbGetQuery(mydb, 'select education_level as education, count, percent from zip_edu;')
+head(zip_edu)
+```
+
+```{r}
+reddit_skill<-dbGetQuery(mydb, 'select skill, count, percent from reddit_skills;')
+head(reddit_skill)
+reddit_edu<-dbGetQuery(mydb, 'select education_level as education, count, percent from reddit_edu;')
+head(reddit_edu)
+```
+
+
+Bar plots - Skills
+```{r}
+# Indeed
+p <- ggplot(indeed_skill, aes(reorder(skill,-count),fill = skill,  count)) + geom_bar(stat="identity") +
+ labs(x = 'Language', y = 'Indeed - Frequency ', title = paste0('Language for Data Scientist in the United States')) 
+p #+ scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+# Zip Recruiter
+p <- ggplot(zip_skill, aes(reorder(skill,-count), fill = skill, count)) + geom_bar(stat="identity") +
+ labs(x = 'Language', y = 'Zip Recruiter - Frequency ', title = paste0('Language for Data Scientist in the United States')) 
+p #+ scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+# Reddit
+p <- ggplot(reddit_skill, aes(reorder(skill,-count),fill = skill,  count)) + geom_bar(stat="identity") +
+ labs(x = 'Language', y = 'Reddit - Frequency ', title = paste0('Language for Data Scientist in the United States')) 
+p #+ scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+```
+
+Bar plots - Education
+```{r}
+# Indeed
+p <- ggplot(indeed_edu, aes(reorder(education,-count), fill = education, count)) + geom_bar(stat="identity") +
+ labs(x = 'Language', y = 'Indeed - Frequency', title = paste0('Education for Data Scientist in the United States')) 
+p #+ scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+# Zip Recruiter
+p <- ggplot(zip_edu, aes(reorder(education,-count), fill = education, count)) + geom_bar(stat="identity") +
+ labs(x = 'Language', y = 'Zip Recruiter - Frequency', title = paste0('Education for Data Scientist in the United States')) 
+p #+ scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+# Reddit
+p <- ggplot(reddit_edu, aes(reorder(education,-count), fill = education, count)) + geom_bar(stat="identity") +
+ labs(x = 'Language', y = 'Reddit - Frequency', title = paste0('Education for Data Scientist in the United States')) 
+p #+ scale_y_continuous(labels = scales::percent, breaks = seq(0,1,0.1))
+```
+
+Word clouds
+
+Indeed - Skills
+```{r}
+set.seed(1234)
+wordcloud(words=indeed_skill$skill, freq = indeed_skill$count, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"));
+```
+
+Zip Recruiter - Skills
+```{r}
+set.seed(1234)
+wordcloud(words=zip_skill$skill, freq = zip_skill$count, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"));
+```
+
+Reddit - Skills
+```{r}
+set.seed(1234)
+wordcloud(words=reddit_skill$skill, freq = reddit_skill$count, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"));
+```
+
+
+Indeed - Education
+```{r}
+set.seed(1234)
+wordcloud(words=indeed_edu$education, freq = indeed_edu$count, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"));
+```
+
+Zip Recruiter - Education
+```{r}
+set.seed(1234)
+wordcloud(words=zip_edu$education, freq = zip_edu$count, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"));
+```
+
+Reddit - Education
+```{r}
+set.seed(1234)
+wordcloud(words=reddit_edu$education, freq = reddit_edu$count, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+We examined the education and skill requirements from indeed.com, ziprecruiter.com, and reddit.com. We illustrate the top skills required through the use of word clouds built from the number of times a skill appears in different job postings. We also examine the skill and education by percentage of job postings. We also collected full job descriptions and compiled them into text documents. 
+
+We can analyze these three documents and perform tf-idf to determine if additional inishgts regarding the most in demand data skills can be obtained. 
+
+That portion of the anaysis can be found here 
+http://rpubs.com/ejd01/374331
