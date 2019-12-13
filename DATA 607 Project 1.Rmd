@@ -1,0 +1,156 @@
+---
+title: "DATA 607 Project 1 Revised"
+author: "Vinicio Haro"
+date: "March 2, 2018"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+The raw data can be found here 
+https://raw.githubusercontent.com/vindication09/DATA607_Project1/master/RawChessData
+
+```{r}
+ELOsheet <-read.csv(paste0("https://raw.githubusercontent.com/vindication09/DATA607_Project1/master/RawChessData"))
+head(ELOsheet)
+```
+
+
+goal:
+we want to create a structured data set that can be uploaded into MySQL that contains the following columns
+Player's Name, Player's State, Total Number of Points, Player's Pre-Rating, and Average Pre Rating of Opponents.
+
+Before doing anything, I notice that there are headings in the first 3 rows. Lets remove them
+
+```{r}
+ELOsheet2<-ELOsheet[-c(1:2),]
+head(ELOsheet2, 10)
+```
+
+we need to use the stingr package in order to massage the data and extract what we need. The DT library is used to make the data.
+
+```{r}
+library(stringr)
+library(DT)
+```
+
+We want to obtain the names of players from the score sheet.
+I notice that there is a specific structure to each row.
+With the heading gone, names, scores, and opponents are found in the first row of each subsection.
+States, ids, and pre rating are all on the second row of each subsection 
+
+I can use this to my advantge and create a subset of data that grabs the first row of each subsection
+and another that grabs the 2nd row of each subsection. 
+
+We will call these subsheets ELOsubsheet1 and ELOsubsheet 2. They are defined as follows: 
+```{r}
+#to grab the 1st row of each subsection, I want to skip the first row, grab the second, skip the third and 4th then repeat 
+ELOsubsheet1<-ELOsheet2[seq(2, length(ELOsheet2), 3)]
+head(ELOsubsheet1)
+```
+
+
+```{r}
+#to grab the 1st row of each subsection, I want to skip the first row, grab the second, skip the third and 4th then repeat 
+ELOsubsheet2<-ELOsheet2[seq(3, length(ELOsheet2), 3)]
+head(ELOsubsheet2)
+```
+
+1) Names from ELOsubsheet1
+```{r}
+ELOname <- str_trim(str_extract(ELOsubsheet1, "(\\w+\\s){2,3}"))
+df.ELOname <- data.frame(ELOname)
+head(df.ELOname)
+```
+
+2) States from ELOsubsheet2
+```{r}
+ELOstate <- str_extract(ELOsubsheet2, "\\w+")
+df.ELOstate <- data.frame(ELOstate)
+head(df.ELOstate)
+```
+
+3) Total Points from ELOsubsheet1
+```{r}
+ELOtotalpoints <- as.numeric(str_extract(ELOsubsheet1, "\\d+\\.\\d+"))
+df.ELOtotalpoints <- data.frame(as.numeric(ELOtotalpoints))
+head(df.ELOtotalpoints)
+```
+
+4) Player Pre Rating from ELOsubsheet2
+```{r}
+ELOprerating <- as.integer(str_extract(str_extract(ELOsubsheet2, "[^\\d]\\d{3,4}[^\\d]"), "\\d+"))
+ELOprerating <- as.numeric(ELOprerating)
+df.ELOprerating<-data.frame(as.numeric(ELOprerating))
+head(df.ELOprerating)
+```
+
+Lets check our progress. We can put together a partial csv to make sure the data has been collected correctly so far.
+```{r}
+partialcsv<-data.frame(df.ELOname, df.ELOstate, df.ELOtotalpoints, ELOprerating)
+head(partialcsv)
+```
+
+5) Average opponent Pre-Rating 
+
+5a) Opponents by their player number from ELOsubsheet1
+```{r}
+ELOopponent<-str_extract_all(str_extract_all(ELOsubsheet1, "\\d+\\|"), "\\d+")
+```
+
+
+5b) Player ID number from ELOsubsheet1
+```{r}
+ELOplayer<-as.integer(str_extract(ELOsubsheet1, "\\d+"))
+df.ELOplayer<-data.frame(as.integer(ELOplayer))
+head(df.ELOplayer)
+```
+
+We have collected a list of the player numbers and the opponents. To compute the average pre-rating or each player, we need to write a loop.
+
+The loop then fetches the pre ratings for each opponent per player number and divides by number of rounds played.
+
+I noticed that I ended up with over 100 rows. After the 64th row, every row showed up as NA. A quick fix was to use the Na omit capability.
+```{r}
+avg_ELOopp_rating <- length(ELOsheet2)
+for (i in 1:length(ELOsheet2)) 
+{ 
+  avg_ELOopp_rating[i] <- round(mean(ELOprerating[as.numeric(unlist(ELOopponent[ELOplayer[i]]))]), digits = 0)
+}
+head(avg_ELOopp_rating)
+
+#Put the avg ratings in a data frame 
+df.avg_ELOopp_rating<-data.frame(na.omit(avg_ELOopp_rating))
+head(df.avg_ELOopp_rating)
+```
+
+In order to validate the data, it is encouraged to check the averages by hand for the first few rows and the last few rows and see if they match up to the averages produced by the loop. 
+
+Put together in a data frame 
+```{r}
+csv<-data.frame(df.ELOplayer, df.ELOname, df.ELOstate, df.ELOtotalpoints, df.ELOprerating, df.avg_ELOopp_rating)
+head(csv)
+```
+
+We can change the names of the columns to make the data more user friendly. 
+```{r}
+#use a better naming convention 
+colnames(csv)[colnames(csv)=="as.integer.ELOplayer."]<-"PlayerNumber"
+colnames(csv)[colnames(csv)=="ELOname"]<-"Name"
+colnames(csv)[colnames(csv)=="ELOstate"]<-"State"
+colnames(csv)[colnames(csv)=="as.numeric.ELOtotalpoints."]<-"TotalPoints"
+colnames(csv)[colnames(csv)=="as.numeric.ELOprerating."]<-"PreRating"
+colnames(csv)[colnames(csv)=="na.omit.avg_ELOopp_rating."]<-"AvgOppPreRating"
+head(csv)
+```
+
+Export the csv to a location of your source. The data is now in a format that can be loaded into mysql or any local database. 
+
+Change the destination to one of your own choosing using the following command:
+write.table(csv, "C:/Users/traveler/Desktop/")
+
+```{r, eval=FALSE, include=FALSE}
+write.table(csv, "C:/Users/traveler/Desktop/")
+```
+
